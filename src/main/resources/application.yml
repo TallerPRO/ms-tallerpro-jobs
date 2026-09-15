@@ -1,0 +1,66 @@
+spring:
+  application:
+    name: ms-tallerpro-jobs
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:tallerpro_jobs}
+    username: ${DB_USER:tallerpro}
+    password: ${DB_PASSWORD:tallerpro}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+server:
+  port: ${SERVER_PORT:8081}
+
+tallerpro:
+  jobs:
+    kafka:
+      topic-jobs-events: jobs.events
+      partitions: 3
+      replicas: ${KAFKA_REPLICAS:1}
+    rabbitmq:
+      exchange-cmd: cmd.direct
+      exchange-dlx: cmd.dead.dlx
+      queue-email: q.cmd.email
+      queue-bay: q.cmd.bay
+      queue-quote: q.cmd.quote
+    catalog:
+      base-url: ${CATALOG_SERVICE_URL:http://localhost:8082}
+      connect-timeout-ms: 2000
+      read-timeout-ms: 3000
+    outbox:
+      publisher-enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
+      poll-fixed-delay-ms: 2000
+      batch-size: 50
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.tallerpro.ms_tallerpro_jobs: INFO

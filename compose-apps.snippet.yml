@@ -1,0 +1,46 @@
+# Bloque a fusionar dentro del compose-apps.yml compartido de ec2-apps (ver DAS 5.3 - despliegue).
+# Asume redes externas ya creadas por los compose de mq (RabbitMQ) y kafka.
+services:
+  ms-tallerpro-jobs:
+    build: ./ms-tallerpro-jobs
+    image: tallerpro/ms-tallerpro-jobs:latest
+    restart: unless-stopped
+    environment:
+      DB_HOST: db-jobs
+      DB_PORT: 5432
+      DB_NAME: tallerpro_jobs
+      DB_USER: tallerpro
+      DB_PASSWORD: ${JOBS_DB_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      CATALOG_SERVICE_URL: http://ms-tallerpro-catalog:8082
+    depends_on:
+      - db-jobs
+    networks:
+      - tallerpro-apps
+      - tallerpro-mq
+      - tallerpro-kafka
+
+  db-jobs:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tallerpro_jobs
+      POSTGRES_USER: tallerpro
+      POSTGRES_PASSWORD: ${JOBS_DB_PASSWORD}
+    volumes:
+      - db-jobs-data:/var/lib/postgresql/data
+    networks:
+      - tallerpro-apps
+
+volumes:
+  db-jobs-data:
+
+networks:
+  tallerpro-apps:
+  tallerpro-mq:
+    external: true
+  tallerpro-kafka:
+    external: true

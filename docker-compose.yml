@@ -1,0 +1,53 @@
+# Docker Compose para desarrollo local de ms-tallerpro-jobs con su propia base PostgreSQL (T-02.12).
+# En ec2-apps (ver DAS 5.3) este servicio se integra en el compose-apps.yml compartido de la red;
+# ver compose-apps.snippet.yml para el bloque a fusionar y la red externa esperada (tallerpro-mq / tallerpro-kafka).
+services:
+  ms-tallerpro-jobs:
+    build: .
+    image: tallerpro/ms-tallerpro-jobs:latest
+    container_name: ms-tallerpro-jobs
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: db-jobs
+      DB_PORT: 5432
+      DB_NAME: tallerpro_jobs
+      DB_USER: tallerpro
+      DB_PASSWORD: tallerpro
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      CATALOG_SERVICE_URL: http://ms-tallerpro-catalog:8082
+    depends_on:
+      db-jobs:
+        condition: service_healthy
+    networks:
+      - tallerpro-apps
+
+  db-jobs:
+    image: postgres:16-alpine
+    container_name: db-jobs
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tallerpro_jobs
+      POSTGRES_USER: tallerpro
+      POSTGRES_PASSWORD: tallerpro
+    volumes:
+      - db-jobs-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tallerpro -d tallerpro_jobs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tallerpro-apps
+
+networks:
+  tallerpro-apps:
+    driver: bridge
+
+volumes:
+  db-jobs-data:
