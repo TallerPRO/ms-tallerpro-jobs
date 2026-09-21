@@ -1,6 +1,6 @@
 package com.tallerpro.ms_tallerpro_jobs.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.tallerpro.ms_tallerpro_jobs.config.JobsProperties;
 import com.tallerpro.ms_tallerpro_jobs.domain.CanalEvento;
 import com.tallerpro.ms_tallerpro_jobs.domain.EstadoOrden;
@@ -22,6 +22,9 @@ import com.tallerpro.ms_tallerpro_jobs.repository.OrdenServicioRepository;
 import com.tallerpro.ms_tallerpro_jobs.repository.OutboxEventRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,7 +83,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
 
         registrarEventoJobs(orden, "OrdenCreada");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                Map.of("tipo", "ORDEN_RECEPCIONADA", "ordenId", orden.getId(), "cliente", orden.getClienteNombre()));
+                conContacto(orden, Map.of("tipo", "ORDEN_RECEPCIONADA", "ordenId", orden.getId(), "cliente", orden.getClienteNombre())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
                 Map.of("tipo", "PRESUPUESTO_INICIAL", "ordenId", orden.getId(), "patente", orden.getVehiculoPatente()));
 
@@ -129,7 +132,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         boolean disponible = catalogClient.consultarDisponibilidadBahia(orden.getTallerId(), request.bahiaId())
                 .map(BahiaDisponibilidadResponse::disponible)
                 .orElse(false);
-        if (!disponible) {
+        if (!disponible || !catalogClient.reservarBahia(orden.getTallerId(), request.bahiaId(), orden.getId())) {
             throw new RecursoNoDisponibleException("La bahia %s no esta disponible en el taller %s"
                     .formatted(request.bahiaId(), orden.getTallerId()));
         }
@@ -157,21 +160,21 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         orden.setFechaDiagnostico(Instant.now());
 
         if (request.repuestos() != null) {
-            request.repuestos().forEach(r -> {
+            for (DiagnosticarOrdenRequest.RepuestoRequerido r : request.repuestos()) {
                 orden.getRepuestosUtilizados().add(new RepuestoUtilizado(r.repuestoId(), r.nombre(), r.cantidad()));
                 boolean ok = catalogClient.solicitarDisminucionStock(orden.getTallerId(), r.repuestoId(),
                         r.cantidad() == null ? 1 : r.cantidad(), UUID.randomUUID().toString());
                 if (!ok) {
                     log.warn("Disminucion de stock no confirmada para repuesto {} de la orden {}", r.repuestoId(), orden.getId());
                 }
-            });
+            }
         }
 
         orden = ordenRepository.save(orden);
 
         registrarEventoJobs(orden, "OrdenDiagnosticada");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                Map.of("tipo", "ORDEN_DIAGNOSTICADA", "ordenId", orden.getId(), "diagnostico", orden.getDiagnostico()));
+                conContacto(orden, Map.of("tipo", "ORDEN_DIAGNOSTICADA", "ordenId", orden.getId(), "diagnostico", orden.getDiagnostico())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
                 Map.of("tipo", "PRESUPUESTO_ACTUALIZADO", "ordenId", orden.getId(), "repuestos", orden.getRepuestosUtilizados().size()));
 
@@ -185,8 +188,9 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         estadoValidator.validarTransicion(orden.getEstado(), EstadoOrden.EN_REPARACION);
 
         if (request.repuestosAdicionales() != null) {
-            request.repuestosAdicionales().forEach(r ->
-                    orden.getRepuestosUtilizados().add(new RepuestoUtilizado(r.repuestoId(), r.nombre(), r.cantidad())));
+            for (var r : request.repuestosAdicionales()) {
+                orden.getRepuestosUtilizados().add(new RepuestoUtilizado(r.repuestoId(), r.nombre(), r.cantidad()));
+            }
         }
         orden.setEstado(EstadoOrden.EN_REPARACION);
         orden.setFechaEnReparacion(Instant.now());
@@ -208,7 +212,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
 
         registrarEventoJobs(orden, "OrdenListaRetiro");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                Map.of("tipo", "VEHICULO_LISTO", "ordenId", orden.getId()));
+                conContacto(orden, Map.of("tipo", "VEHICULO_LISTO", "ordenId", orden.getId())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
                 Map.of("tipo", "ORDEN_TRABAJO_FINAL", "ordenId", orden.getId()));
 
@@ -224,10 +228,11 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         orden.setEstado(EstadoOrden.ENTREGADA);
         orden.setFechaEntrega(Instant.now());
         orden = ordenRepository.save(orden);
+        liberarBahiaSiCorresponde(orden);
 
         registrarEventoJobs(orden, "OrdenEntregada");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                Map.of("tipo", "ORDEN_ENTREGADA", "ordenId", orden.getId()));
+                conContacto(orden, Map.of("tipo", "ORDEN_ENTREGADA", "ordenId", orden.getId())));
 
         return OrdenServicioResponse.from(orden);
     }
@@ -245,12 +250,20 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         orden.setMotivoAnulacion(request.motivo());
         orden.setFechaAnulacion(Instant.now());
         orden = ordenRepository.save(orden);
+        liberarBahiaSiCorresponde(orden);
 
         registrarEventoJobs(orden, "OrdenAnulada");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                Map.of("tipo", "ORDEN_ANULADA", "ordenId", orden.getId(), "motivo", request.motivo()));
+                conContacto(orden, Map.of("tipo", "ORDEN_ANULADA", "ordenId", orden.getId(), "motivo", request.motivo())));
 
         return OrdenServicioResponse.from(orden);
+    }
+
+    /** Al cerrar la orden (entrega o anulacion) la bahia vuelve a estar disponible en catalog. */
+    private void liberarBahiaSiCorresponde(OrdenServicio orden) {
+        if (orden.getBahiaId() != null) {
+            catalogClient.liberarBahia(orden.getTallerId(), orden.getBahiaId());
+        }
     }
 
     private OrdenServicio buscarOrden(UUID id) {
@@ -259,9 +272,12 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
 
     private void registrarEventoJobs(OrdenServicio orden, String tipoEvento) {
         String eventId = UUID.randomUUID().toString();
+        Actor actor = actorActual();
         JobsEventEnvelope envelope = new JobsEventEnvelope(
                 tipoEvento, eventId, Instant.now(), UUID.randomUUID().toString(), eventId,
-                orden.getId(), OrdenServicioResponse.from(orden));
+                orden.getId(), orden.getId().toString(), orden.getTallerId().toString(), orden.getEstado(),
+                actor.id(), actor.nombre(), actor.rol(),
+                serializar(OrdenServicioResponse.from(orden)));
         OutboxEvent evento = OutboxEvent.builder()
                 .aggregateType("OrdenServicio")
                 .aggregateId(orden.getId())
@@ -274,6 +290,48 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
                 .traceId(envelope.traceId())
                 .build();
         outboxRepository.save(evento);
+    }
+
+    /** Los comandos de email llevan el contacto del cliente (si existe) para que notify sepa a quien escribir. */
+    private static Map<String, Object> conContacto(OrdenServicio orden, Map<String, Object> base) {
+        Map<String, Object> datos = new java.util.HashMap<>(base);
+        if (orden.getClienteContacto() != null && !orden.getClienteContacto().isBlank()) {
+            datos.put("contacto", orden.getClienteContacto());
+        }
+        datos.putIfAbsent("cliente", orden.getClienteNombre());
+        return datos;
+    }
+
+    private record Actor(String id, String nombre, String rol) {}
+
+    /**
+     * Quien ejecuta la accion, para auditoria (RF-15): oid y nombre del JWT de Azure AD.
+     * El app role se traduce al enum ActorRole de ms-tallerpro-audit.
+     */
+    private Actor actorActual() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return new Actor("sistema", "Sistema", "SISTEMA");
+        }
+        String id = auth.getName();
+        String nombre = auth.getName();
+        if (auth instanceof JwtAuthenticationToken jwt) {
+            id = jwt.getToken().getClaimAsString("oid") != null ? jwt.getToken().getClaimAsString("oid") : id;
+            nombre = jwt.getToken().getClaimAsString("name") != null ? jwt.getToken().getClaimAsString("name") : id;
+        }
+        String rol = auth.getAuthorities().stream()
+                .map(a -> a.getAuthority())
+                .filter(a -> a.startsWith("ROLE_"))
+                .map(a -> switch (a.substring(5)) {
+                    case "Admin" -> "ADMIN";
+                    case "JefeTaller" -> "JEFE_TALLER";
+                    case "Mecanico" -> "MECANICO";
+                    case "Cliente" -> "CLIENTE";
+                    default -> "SISTEMA";
+                })
+                .findFirst()
+                .orElse("SISTEMA");
+        return new Actor(id, nombre, rol);
     }
 
     private void registrarComandoRabbit(OrdenServicio orden, String routingKey, Object payload) {

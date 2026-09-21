@@ -13,6 +13,7 @@ public record OrdenServicioResponse(
         UUID tallerId,
         UUID clienteId,
         String clienteNombre,
+        String clienteContacto,
         String vehiculoPatente,
         String vehiculoMarca,
         String vehiculoModelo,
@@ -25,14 +26,20 @@ public record OrdenServicioResponse(
         List<RepuestoUtilizado> repuestosUtilizados,
         String motivoAnulacion,
         Instant fechaCreacion,
-        Instant fechaActualizacion
+        Instant fechaActualizacion,
+        Instant fechaDiagnostico,
+        Instant fechaEnReparacion,
+        Instant fechaListaRetiro,
+        Instant fechaEntrega,
+        Instant fechaAnulacion
 ) {
     public static OrdenServicioResponse from(OrdenServicio o) {
         return new OrdenServicioResponse(
-                o.getId(), o.getTallerId(), o.getClienteId(), o.getClienteNombre(),
+                o.getId(), o.getTallerId(), o.getClienteId(), o.getClienteNombre(), o.getClienteContacto(),
                 o.getVehiculoPatente(), o.getVehiculoMarca(), o.getVehiculoModelo(), o.getVehiculoAnio(),
                 o.getEstado(), o.getDiagnostico(), o.getMecanicoId(), o.getMecanicoNombre(), o.getBahiaId(),
-                o.getRepuestosUtilizados(), o.getMotivoAnulacion(), o.getFechaCreacion(), o.getFechaActualizacion()
+                List.copyOf(o.getRepuestosUtilizados()), o.getMotivoAnulacion(), o.getFechaCreacion(), o.getFechaActualizacion(),
+                o.getFechaDiagnostico(), o.getFechaEnReparacion(), o.getFechaListaRetiro(), o.getFechaEntrega(), o.getFechaAnulacion()
         );
     }
 }

@@ -24,11 +24,21 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:tenant-id}/v2.0
+          audiences: api://${AZURE_API_CLIENT_ID:api-client-id}
 
 server:
   port: ${SERVER_PORT:8081}
 
 tallerpro:
+  security:
+    # false -> desarrollo local sin tenant (usuario ficticio con dev-roles). Debe ser true en la nube.
+    jwt-enabled: ${TALLERPRO_JWT_ENABLED:true}
+    dev-roles: ${TALLERPRO_DEV_ROLES:Admin,JefeTaller}
   jobs:
     kafka:
       topic-jobs-events: jobs.events

@@ -16,6 +16,9 @@ spring:
     port: 5672
 
 tallerpro:
+  security:
+    jwt-enabled: false
+    dev-roles: Admin,JefeTaller
   jobs:
     kafka:
       topic-jobs-events: jobs.events

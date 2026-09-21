@@ -41,6 +41,38 @@ public class CatalogClient {
         }
     }
 
+    /**
+     * RF-06: reserva la bahia para la orden (DISPONIBLE -> RESERVADA en catalog).
+     * Devuelve false si catalog la rechaza (409: ya reservada/ocupada) o no responde.
+     */
+    public boolean reservarBahia(UUID tallerId, UUID bahiaId, UUID ordenId) {
+        try {
+            restClient.post()
+                    .uri("/api/v1/talleres/{tallerId}/bahias/{bahiaId}/reserva", tallerId, bahiaId)
+                    .body(new ReservaBahiaRequest(ordenId))
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (RestClientException ex) {
+            log.warn("No fue posible reservar la bahia {} en taller {} para la orden {}: {}", bahiaId, tallerId, ordenId, ex.getMessage());
+            return false;
+        }
+    }
+
+    /** Libera la bahia al entregar o anular la orden (-> DISPONIBLE). Best-effort. */
+    public boolean liberarBahia(UUID tallerId, UUID bahiaId) {
+        try {
+            restClient.post()
+                    .uri("/api/v1/talleres/{tallerId}/bahias/{bahiaId}/liberacion", tallerId, bahiaId)
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (RestClientException ex) {
+            log.warn("No fue posible liberar la bahia {} en taller {}: {}", bahiaId, tallerId, ex.getMessage());
+            return false;
+        }
+    }
+
     /** RF-08: solicita la disminucion de stock de un repuesto al diagnosticar la orden. */
     public boolean solicitarDisminucionStock(UUID tallerId, UUID repuestoId, int cantidad, String eventId) {
         try {
@@ -58,4 +90,6 @@ public class CatalogClient {
     }
 
     private record DecrementoStockRequest(int cantidad, String eventId) {}
+
+    private record ReservaBahiaRequest(UUID ordenId) {}
 }

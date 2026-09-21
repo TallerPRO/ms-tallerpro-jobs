@@ -1,6 +1,6 @@
 package com.tallerpro.ms_tallerpro_jobs.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.tallerpro.ms_tallerpro_jobs.dto.AnularOrdenRequest;
 import com.tallerpro.ms_tallerpro_jobs.dto.AsignarRecursosRequest;
 import com.tallerpro.ms_tallerpro_jobs.dto.BahiaDisponibilidadResponse;
@@ -10,7 +10,7 @@ import com.tallerpro.ms_tallerpro_jobs.service.CatalogClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class OrdenServicioControllerIT {
+class OrdenServicioControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -69,6 +69,8 @@ class OrdenServicioControllerIT {
                 .willReturn(Optional.of(new BahiaDisponibilidadResponse(bahiaId, tallerId, true)));
         given(catalogClient.solicitarDisminucionStock(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any()))
                 .willReturn(true);
+        given(catalogClient.reservarBahia(any(), any(), any())).willReturn(true);
+        given(catalogClient.liberarBahia(any(), any())).willReturn(true);
 
         CrearOrdenRequest crearRequest = new CrearOrdenRequest(
                 tallerId, clienteId, "Juan Perez", "juan@example.com", "ABCD12", "Toyota", "Yaris", 2020);
@@ -144,6 +146,8 @@ class OrdenServicioControllerIT {
                 .willReturn(Optional.of(new BahiaDisponibilidadResponse(bahiaId, tallerId, true)));
         given(catalogClient.solicitarDisminucionStock(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any()))
                 .willReturn(true);
+        given(catalogClient.reservarBahia(any(), any(), any())).willReturn(true);
+        given(catalogClient.liberarBahia(any(), any())).willReturn(true);
 
         CrearOrdenRequest crearRequest = new CrearOrdenRequest(
                 tallerId, clienteId, "Carlos Diaz", "carlos@example.com", "QWER11", "Chevrolet", "Sail", 2018);

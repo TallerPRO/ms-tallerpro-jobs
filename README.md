@@ -46,11 +46,37 @@ Incluye tests unitarios de la máquina de estados (`EstadoOrdenTest`, `EstadoOrd
 de integración del flujo completo de una orden (`OrdenServicioControllerIT`), con Kafka/RabbitMQ simulados
 (mocks) y base de datos H2 en memoria.
 
-## Notas
+## Seguridad (Azure AD JWT)
 
-- No incluye validación JWT (Azure AD) ni RBAC: según el DAS, eso corresponde a `ms-tallerpro-bff` (Épica 1),
-  fuera del alcance de las 13 tareas de esta épica.
-- El endpoint de disponibilidad/decremento de stock en `ms-tallerpro-catalog` se asume bajo
-  `/api/v1/talleres/{tallerId}/bahias/{bahiaId}/disponibilidad` y
-  `/api/v1/talleres/{tallerId}/repuestos/{repuestoId}/stock/decremento`; ajustar `CatalogClient` si el
-  contrato real de ese microservicio difiere.
+Cada request debe traer `Authorization: Bearer <jwt>`; el microservicio valida issuer/audience/firma por su
+cuenta (confianza cero) y autoriza por rol con `@PreAuthorize` (`config/SecurityConfig`):
+
+| Endpoint | Roles |
+|---|---|
+| `POST /api/v1/ordenes` | Admin, JefeTaller, Cliente |
+| `GET /api/v1/ordenes`, `GET /{id}` | Admin, JefeTaller, Mecanico, Auditor |
+| `GET /{id}/clientes/{clienteId}` | Admin, JefeTaller; Cliente **solo si `clienteId` == `oid` de su token** (alcance de datos) |
+| `POST /{id}/asignacion`, `/entrega`, `/anulacion` | Admin, JefeTaller |
+| `POST /{id}/diagnostico`, `/reparacion`, `/lista-retiro` | Admin, JefeTaller, Mecanico |
+
+Errores: `401` sin token · `403` rol/alcance insuficiente · `404` · `409` transición inválida o recurso no disponible.
+
+Variables: `AZURE_TENANT_ID`, `AZURE_API_CLIENT_ID`, `TALLERPRO_JWT_ENABLED` (`false` = desarrollo local con
+usuario ficticio de roles `TALLERPRO_DEV_ROLES`, default `Admin,JefeTaller`).
+
+El JWT del usuario se **propaga** a `ms-tallerpro-catalog` en cada llamada interna (`config/RestClientConfig`).
+
+## Integración con ms-tallerpro-catalog (`service/CatalogClient`)
+
+| Momento | Llamada |
+|---|---|
+| Asignar recursos (RF-06) | `GET .../bahias/{id}/disponibilidad` y luego `POST .../bahias/{id}/reserva` (409 si otra orden la tiene) |
+| Diagnosticar (RF-08) | `POST .../repuestos/{id}/stock/decremento` con `eventId` (idempotente) |
+| Entregar / anular | `POST .../bahias/{id}/liberacion` |
+
+## Ejecución local sin PostgreSQL/Kafka/RabbitMQ
+
+```bash
+./mvnw spring-boot:test-run -Dspring-boot.run.profiles=test   "-Dspring-boot.run.arguments=--tallerpro.security.jwt-enabled=false"
+```
+(H2 en memoria; `/actuator/health` reporta `DOWN` por Kafka/Rabbit ausentes, pero la API funciona.)
