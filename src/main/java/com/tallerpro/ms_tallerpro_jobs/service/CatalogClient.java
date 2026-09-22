@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -59,6 +60,24 @@ public class CatalogClient {
         }
     }
 
+    /**
+     * Marca la bahia como OCUPADA (RESERVADA -> OCUPADA) cuando el vehiculo
+     * entra al puesto de trabajo. Lo dispara el diagnostico de la orden: la
+     * ocupacion no se maneja a mano desde la pantalla de bahias.
+     */
+    public boolean ocuparBahia(UUID tallerId, UUID bahiaId) {
+        try {
+            restClient.post()
+                    .uri("/api/v1/talleres/{tallerId}/bahias/{bahiaId}/ocupacion", tallerId, bahiaId)
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (RestClientException ex) {
+            log.warn("No fue posible ocupar la bahia {} en taller {}: {}", bahiaId, tallerId, ex.getMessage());
+            return false;
+        }
+    }
+
     /** Libera la bahia al entregar o anular la orden (-> DISPONIBLE). Best-effort. */
     public boolean liberarBahia(UUID tallerId, UUID bahiaId) {
         try {
@@ -88,6 +107,70 @@ public class CatalogClient {
             return false;
         }
     }
+
+    /**
+     * Precio y nombre vigentes de un servicio del catalogo.
+     *
+     * El precio de lo que se cobra lo decide catalog, no el cliente HTTP: asi el
+     * total de la orden no se puede manipular desde el navegador. Si catalog no
+     * responde, se devuelve vacio y el item queda sin precio (subtotal 0) en vez
+     * de bloquear el cierre de la orden.
+     */
+    public Optional<PrecioCatalogo> obtenerServicio(UUID servicioId) {
+        try {
+            ServicioResponse response = restClient.get()
+                    .uri("/api/v1/servicios/{servicioId}", servicioId)
+                    .retrieve()
+                    .body(ServicioResponse.class);
+            return response == null ? Optional.empty()
+                    : Optional.of(new PrecioCatalogo(response.nombre(), response.precio()));
+        } catch (RestClientException ex) {
+            log.warn("No fue posible obtener el servicio {} del catalogo: {}", servicioId, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** Precio y nombre vigentes de un repuesto del taller (ver obtenerServicio). */
+    public Optional<PrecioCatalogo> obtenerRepuesto(UUID tallerId, UUID repuestoId) {
+        try {
+            RepuestoResponse response = restClient.get()
+                    .uri("/api/v1/talleres/{tallerId}/repuestos/{repuestoId}", tallerId, repuestoId)
+                    .retrieve()
+                    .body(RepuestoResponse.class);
+            return response == null ? Optional.empty()
+                    : Optional.of(new PrecioCatalogo(response.nombre(), response.precioUnitario()));
+        } catch (RestClientException ex) {
+            log.warn("No fue posible obtener el repuesto {} del taller {}: {}", repuestoId, tallerId, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Estado actual de una bahia. jobs lo usa para distinguir "ocupada por otra
+     * orden" de "ya reservada para esta misma orden" (ver reservarBahiaParaOrden).
+     */
+    public Optional<BahiaEstado> obtenerBahia(UUID tallerId, UUID bahiaId) {
+        try {
+            BahiaEstado response = restClient.get()
+                    .uri("/api/v1/talleres/{tallerId}/bahias/{bahiaId}", tallerId, bahiaId)
+                    .retrieve()
+                    .body(BahiaEstado.class);
+            return Optional.ofNullable(response);
+        } catch (RestClientException ex) {
+            log.warn("No fue posible obtener la bahia {} del taller {}: {}", bahiaId, tallerId, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** Subconjunto de BahiaResponse de catalog que a jobs le interesa. */
+    public record BahiaEstado(UUID id, String codigo, String estado, UUID ordenId) {}
+
+    /** Lo unico que jobs necesita del catalogo para cobrar: como se llama y cuanto vale. */
+    public record PrecioCatalogo(String nombre, BigDecimal precio) {}
+
+    private record ServicioResponse(String nombre, BigDecimal precio) {}
+
+    private record RepuestoResponse(String nombre, BigDecimal precioUnitario) {}
 
     private record DecrementoStockRequest(int cantidad, String eventId) {}
 

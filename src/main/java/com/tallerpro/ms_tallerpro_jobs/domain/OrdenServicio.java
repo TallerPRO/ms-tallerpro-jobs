@@ -19,6 +19,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,9 @@ public class OrdenServicio {
 
     private String clienteContacto;
 
+    /** Telefono del cliente, para contactarlo cuando el correo no alcanza. */
+    private String clienteTelefono;
+
     @Column(nullable = false)
     private String vehiculoPatente;
 
@@ -70,12 +74,29 @@ public class OrdenServicio {
 
     private UUID mecanicoId;
     private String mecanicoNombre;
+
+    /** Correo del mecanico: a el llega el aviso de trabajo cuando se ocupa la bahia. */
+    private String mecanicoContacto;
     private UUID bahiaId;
 
     @ElementCollection
     @CollectionTable(name = "orden_repuestos", joinColumns = @JoinColumn(name = "orden_id"))
     @Builder.Default
     private List<RepuestoUtilizado> repuestosUtilizados = new ArrayList<>();
+
+    /** Servicios del catalogo ejecutados sobre el vehiculo (mano de obra). */
+    @ElementCollection
+    @CollectionTable(name = "orden_servicios", joinColumns = @JoinColumn(name = "orden_id"))
+    @Builder.Default
+    private List<ServicioAplicado> serviciosAplicados = new ArrayList<>();
+
+    /**
+     * Monto a cobrar: suma de repuestos y servicios con el precio que tenian al
+     * usarlos. Se recalcula en cada cambio de la orden, nunca lo envia el cliente.
+     */
+    @Column(precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal total = BigDecimal.ZERO;
 
     @Column(columnDefinition = "TEXT")
     private String motivoAnulacion;
@@ -106,10 +127,35 @@ public class OrdenServicio {
         if (this.repuestosUtilizados == null) {
             this.repuestosUtilizados = new ArrayList<>();
         }
+        if (this.serviciosAplicados == null) {
+            this.serviciosAplicados = new ArrayList<>();
+        }
+        if (this.total == null) {
+            this.total = BigDecimal.ZERO;
+        }
     }
 
     @PreUpdate
     void alActualizar() {
         this.fechaActualizacion = Instant.now();
+    }
+
+    /**
+     * Suma repuestos + servicios. Se llama desde el servicio cada vez que la
+     * orden cambia de items, para que `total` nunca quede desalineado del detalle.
+     */
+    public void recalcularTotal() {
+        BigDecimal suma = BigDecimal.ZERO;
+        if (repuestosUtilizados != null) {
+            for (RepuestoUtilizado r : repuestosUtilizados) {
+                suma = suma.add(r.getSubtotal());
+            }
+        }
+        if (serviciosAplicados != null) {
+            for (ServicioAplicado s : serviciosAplicados) {
+                suma = suma.add(s.getSubtotal());
+            }
+        }
+        this.total = suma;
     }
 }

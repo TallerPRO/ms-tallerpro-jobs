@@ -8,5 +8,10 @@ import java.util.UUID;
 public record AsignarRecursosRequest(
         @NotNull UUID mecanicoId,
         String mecanicoNombre,
+        /**
+         * Correo del mecanico, para que notify le avise en que bahia tiene
+         * trabajo. Lo entrega el catalogo de mecanicos del taller.
+         */
+        String mecanicoContacto,
         @NotNull UUID bahiaId
 ) {}

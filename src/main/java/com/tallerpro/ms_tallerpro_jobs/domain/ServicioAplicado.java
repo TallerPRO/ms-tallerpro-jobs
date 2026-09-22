@@ -10,26 +10,21 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * Repuesto consumido por la orden. El precio se copia del catalogo en el
- * momento de usarlo: si manana cambia la lista de precios, lo ya cobrado no
- * se altera.
+ * Servicio del catalogo ejecutado sobre la orden (mano de obra). Igual que en
+ * RepuestoUtilizado, el precio queda congelado al momento de aplicarlo.
  */
 @Embeddable
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class RepuestoUtilizado {
-    private UUID repuestoId;
+public class ServicioAplicado {
+    private UUID servicioId;
     private String nombre;
     private Integer cantidad;
 
-    /** Precio unitario vigente al momento de usarlo (CLP). */
+    /** Precio unitario vigente al momento de aplicarlo (CLP). */
     private BigDecimal precioUnitario;
-
-    public RepuestoUtilizado(UUID repuestoId, String nombre, Integer cantidad) {
-        this(repuestoId, nombre, cantidad, null);
-    }
 
     /** precioUnitario x cantidad. Cero si aun no se conoce el precio. */
     public BigDecimal getSubtotal() {

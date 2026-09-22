@@ -116,7 +116,7 @@ class OrdenServicioSeguridadTest {
     }
 
     private static CrearOrdenRequest nuevaOrden(UUID clienteId) {
-        return new CrearOrdenRequest(UUID.randomUUID(), clienteId, "Ana Perez", "ana@correo.cl",
-                "ABCD12", "Toyota", "Yaris", 2020);
+        return new CrearOrdenRequest(UUID.randomUUID(), clienteId, "Ana Perez", "ana@correo.cl", "+56911111116",
+                "ABCD12", "Toyota", "Yaris", 2020, null, null, null, null);
     }
 }

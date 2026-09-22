@@ -7,6 +7,7 @@ import com.tallerpro.ms_tallerpro_jobs.domain.EstadoOrden;
 import com.tallerpro.ms_tallerpro_jobs.domain.OrdenServicio;
 import com.tallerpro.ms_tallerpro_jobs.domain.OutboxEvent;
 import com.tallerpro.ms_tallerpro_jobs.domain.RepuestoUtilizado;
+import com.tallerpro.ms_tallerpro_jobs.domain.ServicioAplicado;
 import com.tallerpro.ms_tallerpro_jobs.dto.AnularOrdenRequest;
 import com.tallerpro.ms_tallerpro_jobs.dto.AsignarRecursosRequest;
 import com.tallerpro.ms_tallerpro_jobs.dto.BahiaDisponibilidadResponse;
@@ -29,6 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,6 +75,10 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
                 .clienteId(request.clienteId())
                 .clienteNombre(request.clienteNombre())
                 .clienteContacto(request.clienteContacto())
+                .clienteTelefono(request.clienteTelefono())
+                .mecanicoId(request.mecanicoId())
+                .mecanicoNombre(request.mecanicoNombre())
+                .mecanicoContacto(request.mecanicoContacto())
                 .vehiculoPatente(request.vehiculoPatente())
                 .vehiculoMarca(request.vehiculoMarca())
                 .vehiculoModelo(request.vehiculoModelo())
@@ -80,6 +86,16 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
                 .estado(EstadoOrden.RECEPCIONADA)
                 .build();
         orden = ordenRepository.save(orden);
+
+        // RF-06: si la recepcion indica bahia, se reserva en el mismo acto. La
+        // reserva va despues del save porque catalog necesita el id de la orden.
+        // Si catalog la rechaza, la excepcion revierte la transaccion y la orden
+        // no queda creada: preferimos fallar a recepcionar un vehiculo sin puesto.
+        if (request.bahiaId() != null) {
+            reservarBahiaParaOrden(orden, request.bahiaId());
+            orden.setBahiaId(request.bahiaId());
+            orden = ordenRepository.save(orden);
+        }
 
         registrarEventoJobs(orden, "OrdenCreada");
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
@@ -129,22 +145,17 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
             throw new EstadoInvalidoException("No es posible asignar recursos a una orden en estado " + orden.getEstado());
         }
 
-        boolean disponible = catalogClient.consultarDisponibilidadBahia(orden.getTallerId(), request.bahiaId())
-                .map(BahiaDisponibilidadResponse::disponible)
-                .orElse(false);
-        if (!disponible || !catalogClient.reservarBahia(orden.getTallerId(), request.bahiaId(), orden.getId())) {
-            throw new RecursoNoDisponibleException("La bahia %s no esta disponible en el taller %s"
-                    .formatted(request.bahiaId(), orden.getTallerId()));
-        }
+        reservarBahiaParaOrden(orden, request.bahiaId());
 
         orden.setMecanicoId(request.mecanicoId());
         orden.setMecanicoNombre(request.mecanicoNombre());
+        if (request.mecanicoContacto() != null && !request.mecanicoContacto().isBlank()) {
+            orden.setMecanicoContacto(request.mecanicoContacto());
+        }
         orden.setBahiaId(request.bahiaId());
         orden = ordenRepository.save(orden);
 
         registrarEventoJobs(orden, "OrdenAsignada");
-        registrarComandoRabbit(orden, properties.rabbitmq().queueBay(),
-                Map.of("tipo", "TICKET_BAHIA", "ordenId", orden.getId(), "mecanicoId", orden.getMecanicoId(), "bahiaId", orden.getBahiaId()));
 
         return OrdenServicioResponse.from(orden);
     }
@@ -161,7 +172,14 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
 
         if (request.repuestos() != null) {
             for (DiagnosticarOrdenRequest.RepuestoRequerido r : request.repuestos()) {
-                orden.getRepuestosUtilizados().add(new RepuestoUtilizado(r.repuestoId(), r.nombre(), r.cantidad()));
+                // Precio del catalogo para que el total de la orden cuadre desde el diagnostico.
+                var datos = catalogClient.obtenerRepuesto(orden.getTallerId(), r.repuestoId());
+                orden.getRepuestosUtilizados().add(new RepuestoUtilizado(
+                        r.repuestoId(),
+                        datos.map(CatalogClient.PrecioCatalogo::nombre).orElse(r.nombre()),
+                        r.cantidad(),
+                        datos.map(CatalogClient.PrecioCatalogo::precio).orElse(null)));
+
                 boolean ok = catalogClient.solicitarDisminucionStock(orden.getTallerId(), r.repuestoId(),
                         r.cantidad() == null ? 1 : r.cantidad(), UUID.randomUUID().toString());
                 if (!ok) {
@@ -170,6 +188,18 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
             }
         }
 
+        if (request.servicios() != null) {
+            for (DiagnosticarOrdenRequest.ServicioRequerido s : request.servicios()) {
+                var datos = catalogClient.obtenerServicio(s.servicioId());
+                orden.getServiciosAplicados().add(new ServicioAplicado(
+                        s.servicioId(),
+                        datos.map(CatalogClient.PrecioCatalogo::nombre).orElse("Servicio " + s.servicioId()),
+                        s.cantidad(),
+                        datos.map(CatalogClient.PrecioCatalogo::precio).orElse(null)));
+            }
+        }
+
+        orden.recalcularTotal();
         orden = ordenRepository.save(orden);
 
         registrarEventoJobs(orden, "OrdenDiagnosticada");
@@ -189,17 +219,38 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
 
         if (request.repuestosAdicionales() != null) {
             for (var r : request.repuestosAdicionales()) {
-                orden.getRepuestosUtilizados().add(new RepuestoUtilizado(r.repuestoId(), r.nombre(), r.cantidad()));
+                var datos = catalogClient.obtenerRepuesto(orden.getTallerId(), r.repuestoId());
+                orden.getRepuestosUtilizados().add(new RepuestoUtilizado(
+                        r.repuestoId(),
+                        datos.map(CatalogClient.PrecioCatalogo::nombre).orElse(r.nombre()),
+                        r.cantidad(),
+                        datos.map(CatalogClient.PrecioCatalogo::precio).orElse(null)));
             }
+            orden.recalcularTotal();
         }
         orden.setEstado(EstadoOrden.EN_REPARACION);
         orden.setFechaEnReparacion(Instant.now());
         orden = ordenRepository.save(orden);
 
+        // Empieza el trabajo: el vehiculo entra a su bahia (queda OCUPADA) y
+        // recien aqui se le avisa al mecanico, con el diagnostico y las
+        // observaciones, que es lo que necesita para trabajar. La ocupacion se
+        // maneja siempre desde la orden, nunca a mano desde el mapa de bahias.
+        if (orden.getBahiaId() != null) {
+            catalogClient.ocuparBahia(orden.getTallerId(), orden.getBahiaId());
+            registrarComandoRabbit(orden, properties.rabbitmq().queueBay(),
+                    comandoTicketBahia(orden, request.observaciones()));
+        }
+
         registrarEventoJobs(orden, "OrdenEnReparacion");
         return OrdenServicioResponse.from(orden);
     }
 
+    /**
+     * Fin del trabajo (RF-05/RF-06): la orden queda LISTA_RETIRO, se avisa al
+     * cliente con el monto a pagar y se libera la bahia. Liberar el puesto es
+     * consecuencia de este paso, no una accion suelta del mapa de bahias.
+     */
     @Override
     @Transactional
     public OrdenServicioResponse marcarListaParaRetiro(UUID id) {
@@ -210,11 +261,14 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         orden.setFechaListaRetiro(Instant.now());
         orden = ordenRepository.save(orden);
 
+        liberarBahiaSiCorresponde(orden);
+
         registrarEventoJobs(orden, "OrdenListaRetiro");
+        // Aviso al cliente de que el vehiculo esta listo, con el monto a pagar.
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
-                conContacto(orden, Map.of("tipo", "VEHICULO_LISTO", "ordenId", orden.getId())));
+                conContacto(orden, Map.of("tipo", "VEHICULO_LISTO", "ordenId", orden.getId(), "total", orden.getTotal())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
-                Map.of("tipo", "ORDEN_TRABAJO_FINAL", "ordenId", orden.getId()));
+                Map.of("tipo", "ORDEN_TRABAJO_FINAL", "ordenId", orden.getId(), "total", orden.getTotal()));
 
         return OrdenServicioResponse.from(orden);
     }
@@ -257,6 +311,68 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
                 conContacto(orden, Map.of("tipo", "ORDEN_ANULADA", "ordenId", orden.getId(), "motivo", request.motivo())));
 
         return OrdenServicioResponse.from(orden);
+    }
+
+    /**
+     * Reserva la bahia para la orden, o la acepta si ya estaba tomada por esta
+     * misma orden.
+     *
+     * Esa idempotencia es necesaria desde que la recepcion reserva la bahia al
+     * crear la orden: al asignar despues el mecanico, la bahia ya figura
+     * RESERVADA (u OCUPADA si el vehiculo entro) y catalog respondaria 409.
+     * Solo se rechaza cuando la bahia esta tomada por OTRA orden.
+     */
+    private void reservarBahiaParaOrden(OrdenServicio orden, UUID bahiaId) {
+        boolean disponible = catalogClient.consultarDisponibilidadBahia(orden.getTallerId(), bahiaId)
+                .map(BahiaDisponibilidadResponse::disponible)
+                .orElse(false);
+
+        if (disponible) {
+            if (!catalogClient.reservarBahia(orden.getTallerId(), bahiaId, orden.getId())) {
+                throw new RecursoNoDisponibleException("La bahia %s no esta disponible en el taller %s"
+                        .formatted(bahiaId, orden.getTallerId()));
+            }
+            return;
+        }
+
+        boolean yaEsDeEstaOrden = catalogClient.obtenerBahia(orden.getTallerId(), bahiaId)
+                .map(b -> orden.getId().equals(b.ordenId()))
+                .orElse(false);
+        if (!yaEsDeEstaOrden) {
+            throw new RecursoNoDisponibleException("La bahia %s no esta disponible en el taller %s"
+                    .formatted(bahiaId, orden.getTallerId()));
+        }
+    }
+
+    /**
+     * Comando para notify: el aviso al mecanico de que tiene trabajo.
+     *
+     * Lleva el codigo visible de la bahia ("A-01"), no el UUID, porque es lo
+     * que el mecanico reconoce; el codigo se lee del catalogo al construirlo.
+     */
+    private Map<String, Object> comandoTicketBahia(OrdenServicio orden, String observaciones) {
+        Map<String, Object> comando = new LinkedHashMap<>();
+        comando.put("tipo", "TICKET_BAHIA");
+        comando.put("ordenId", orden.getId());
+        comando.put("mecanicoId", orden.getMecanicoId());
+        comando.put("bahiaId", orden.getBahiaId());
+        comando.put("patente", orden.getVehiculoPatente());
+        // El detalle del trabajo: el diagnostico y, si la hay, la nota del paso.
+        if (orden.getDiagnostico() != null) {
+            comando.put("diagnostico", orden.getDiagnostico());
+        }
+        if (observaciones != null && !observaciones.isBlank()) {
+            comando.put("observaciones", observaciones);
+        }
+        if (orden.getMecanicoNombre() != null) {
+            comando.put("mecanicoNombre", orden.getMecanicoNombre());
+        }
+        if (orden.getMecanicoContacto() != null && !orden.getMecanicoContacto().isBlank()) {
+            comando.put("contacto", orden.getMecanicoContacto());
+        }
+        catalogClient.obtenerBahia(orden.getTallerId(), orden.getBahiaId())
+                .ifPresent(b -> comando.put("bahiaCodigo", b.codigo()));
+        return comando;
     }
 
     /** Al cerrar la orden (entrega o anulacion) la bahia vuelve a estar disponible en catalog. */
