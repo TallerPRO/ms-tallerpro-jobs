@@ -1,6 +1,11 @@
-# Docker Compose para desarrollo local de ms-tallerpro-jobs con su propia base PostgreSQL (T-02.12).
-# En ec2-apps (ver DAS 5.3) este servicio se integra en el compose-apps.yml compartido de la red;
-# ver compose-apps.snippet.yml para el bloque a fusionar y la red externa esperada (tallerpro-mq / tallerpro-kafka).
+# ms-tallerpro-jobs + su PostgreSQL. Requiere la infraestructura levantada antes
+# (../docker-compose.infra.yml): crea la red tallerpro-net, Kafka y RabbitMQ.
+#
+#   docker compose up -d --build
+#
+# Publica en Kafka (jobs.events) y en RabbitMQ (cmd.direct -> q.cmd.*) via outbox.
+name: tallerpro-jobs
+
 services:
   ms-tallerpro-jobs:
     build: .
@@ -14,18 +19,22 @@ services:
       DB_PORT: 5432
       DB_NAME: tallerpro_jobs
       DB_USER: tallerpro
-      DB_PASSWORD: tallerpro
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      RABBITMQ_HOST: rabbitmq
+      DB_PASSWORD: ${JOBS_DB_PASSWORD:-tallerpro}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      KAFKA_REPLICAS: 1
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: 5672
-      RABBITMQ_USER: guest
-      RABBITMQ_PASSWORD: guest
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       CATALOG_SERVICE_URL: http://ms-tallerpro-catalog:8082
+      TALLERPRO_JWT_ENABLED: ${TALLERPRO_JWT_ENABLED:-false}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-tenant-id}
+      AZURE_API_CLIENT_ID: ${AZURE_API_CLIENT_ID:-api-client-id}
     depends_on:
       db-jobs:
         condition: service_healthy
     networks:
-      - tallerpro-apps
+      - tallerpro-net
 
   db-jobs:
     image: postgres:16-alpine
@@ -34,7 +43,7 @@ services:
     environment:
       POSTGRES_DB: tallerpro_jobs
       POSTGRES_USER: tallerpro
-      POSTGRES_PASSWORD: tallerpro
+      POSTGRES_PASSWORD: ${JOBS_DB_PASSWORD:-tallerpro}
     volumes:
       - db-jobs-data:/var/lib/postgresql/data
     healthcheck:
@@ -43,11 +52,11 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - tallerpro-apps
-
-networks:
-  tallerpro-apps:
-    driver: bridge
+      - tallerpro-net
 
 volumes:
   db-jobs-data:
+
+networks:
+  tallerpro-net:
+    external: true
