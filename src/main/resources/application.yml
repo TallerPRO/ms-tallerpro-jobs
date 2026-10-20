@@ -58,6 +58,11 @@ tallerpro:
       publisher-enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
       poll-fixed-delay-ms: 2000
       batch-size: 50
+    # Solo se usa si arrancas con --spring.profiles.active=demo (DemoDataSeeder).
+    # Cambia estos correos aqui cuando quieras probar con otros destinatarios.
+    demo:
+      cliente-email: ${DEMO_CLIENTE_EMAIL:maxibrocklestt7@gmail.com}
+      mecanico-email: ${DEMO_MECANICO_EMAIL:benjaben100@gmail.com}
 
 springdoc:
   api-docs:

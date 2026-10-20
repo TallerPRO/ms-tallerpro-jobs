@@ -7,7 +7,8 @@ public record JobsProperties(
         Kafka kafka,
         Rabbitmq rabbitmq,
         Catalog catalog,
-        Outbox outbox
+        Outbox outbox,
+        Demo demo
 ) {
     public record Kafka(String topicJobsEvents, int partitions, int replicas) {}
 
@@ -16,4 +17,7 @@ public record JobsProperties(
     public record Catalog(String baseUrl, int connectTimeoutMs, int readTimeoutMs) {}
 
     public record Outbox(boolean publisherEnabled, long pollFixedDelayMs, int batchSize) {}
+
+    /** Correos usados por DemoDataSeeder (perfil "demo"), ver T-02.13. */
+    public record Demo(String clienteEmail, String mecanicoEmail) {}
 }

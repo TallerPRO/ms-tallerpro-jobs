@@ -3,11 +3,13 @@ package com.tallerpro.ms_tallerpro_jobs.service;
 import com.tallerpro.ms_tallerpro_jobs.dto.BahiaDisponibilidadResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -162,8 +164,44 @@ public class CatalogClient {
         }
     }
 
+    /**
+     * Solo para DemoDataSeeder (perfil "demo"): reutiliza la bahia de demo si ya
+     * existe en el taller (por codigo) o la crea si es la primera vez. No se usa
+     * en el flujo normal de ordenes (la creacion de bahias es RF-09, rol Admin).
+     */
+    public Optional<UUID> obtenerOCrearBahiaDemo(UUID tallerId, String codigo, String sector) {
+        try {
+            List<BahiaEstado> bahias = restClient.get()
+                    .uri("/api/v1/talleres/{tallerId}/bahias", tallerId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<BahiaEstado>>() {});
+            Optional<UUID> existente = (bahias == null ? List.<BahiaEstado>of() : bahias).stream()
+                    .filter(b -> codigo.equals(b.codigo()))
+                    .map(BahiaEstado::id)
+                    .findFirst();
+            if (existente.isPresent()) {
+                return existente;
+            }
+        } catch (RestClientException ex) {
+            log.warn("No fue posible listar bahias del taller {} (seeder de demo): {}", tallerId, ex.getMessage());
+        }
+        try {
+            BahiaEstado creada = restClient.post()
+                    .uri("/api/v1/talleres/{tallerId}/bahias", tallerId)
+                    .body(new CrearBahiaRequest(codigo, sector, true))
+                    .retrieve()
+                    .body(BahiaEstado.class);
+            return Optional.ofNullable(creada).map(BahiaEstado::id);
+        } catch (RestClientException ex) {
+            log.error("No fue posible crear la bahia de demo {} en taller {}: {}", codigo, tallerId, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
     /** Subconjunto de BahiaResponse de catalog que a jobs le interesa. */
     public record BahiaEstado(UUID id, String codigo, String estado, UUID ordenId) {}
+
+    private record CrearBahiaRequest(String codigo, String sector, boolean activa) {}
 
     /** Lo unico que jobs necesita del catalogo para cobrar: como se llama y cuanto vale. */
     public record PrecioCatalogo(String nombre, BigDecimal precio) {}
