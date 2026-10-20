@@ -101,7 +101,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
                 conContacto(orden, Map.of("tipo", "ORDEN_RECEPCIONADA", "ordenId", orden.getId(), "cliente", orden.getClienteNombre())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
-                Map.of("tipo", "PRESUPUESTO_INICIAL", "ordenId", orden.getId(), "patente", orden.getVehiculoPatente()));
+                conContacto(orden, Map.of("tipo", "PRESUPUESTO_INICIAL", "ordenId", orden.getId(), "patente", orden.getVehiculoPatente())));
 
         log.info("Orden {} creada para taller {}", orden.getId(), orden.getTallerId());
         return OrdenServicioResponse.from(orden);
@@ -206,7 +206,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
                 conContacto(orden, Map.of("tipo", "ORDEN_DIAGNOSTICADA", "ordenId", orden.getId(), "diagnostico", orden.getDiagnostico())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
-                Map.of("tipo", "PRESUPUESTO_ACTUALIZADO", "ordenId", orden.getId(), "repuestos", orden.getRepuestosUtilizados().size()));
+                conContacto(orden, Map.of("tipo", "PRESUPUESTO_ACTUALIZADO", "ordenId", orden.getId(), "repuestos", orden.getRepuestosUtilizados().size())));
 
         return OrdenServicioResponse.from(orden);
     }
@@ -268,7 +268,7 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
         registrarComandoRabbit(orden, properties.rabbitmq().queueEmail(),
                 conContacto(orden, Map.of("tipo", "VEHICULO_LISTO", "ordenId", orden.getId(), "total", orden.getTotal())));
         registrarComandoRabbit(orden, properties.rabbitmq().queueQuote(),
-                Map.of("tipo", "ORDEN_TRABAJO_FINAL", "ordenId", orden.getId(), "total", orden.getTotal()));
+                conContacto(orden, Map.of("tipo", "ORDEN_TRABAJO_FINAL", "ordenId", orden.getId(), "total", orden.getTotal())));
 
         return OrdenServicioResponse.from(orden);
     }
