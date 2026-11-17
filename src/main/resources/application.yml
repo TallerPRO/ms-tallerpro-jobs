@@ -19,6 +19,9 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
+    admin:
+      # Aplica las configs de NewTopic (retention.ms) tambien a topicos que ya existian.
+      modify-topic-configs: true
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -39,11 +42,18 @@ tallerpro:
     # false -> desarrollo local sin tenant (usuario ficticio con dev-roles). Debe ser true en la nube.
     jwt-enabled: ${TALLERPRO_JWT_ENABLED:true}
     dev-roles: ${TALLERPRO_DEV_ROLES:Admin,JefeTaller}
+  # Administrador de Kafka (EP5) -> /api/v1/admin/kafka/** (solo rol Admin).
+  kafka-admin:
+    # Topicos de la arquitectura: eliminarlos exige ?force=true.
+    protected-topics: jobs.events,jobs.events.report.DLT,jobs.events.audit.DLT,audit.timeline,audit.timeline.DLT
+    timeout-ms: 10000
   jobs:
     kafka:
       topic-jobs-events: jobs.events
       partitions: 3
       replicas: ${KAFKA_REPLICAS:1}
+      # 7 dias: ventana para reprocesar el historial (reset de offsets a EARLIEST).
+      retention-ms: 604800000
     rabbitmq:
       exchange-cmd: cmd.direct
       exchange-dlx: cmd.dead.dlx
@@ -58,11 +68,17 @@ tallerpro:
       publisher-enabled: ${OUTBOX_PUBLISHER_ENABLED:true}
       poll-fixed-delay-ms: 2000
       batch-size: 50
+      # Backoff exponencial por evento: 5s, 10s, 20s, ... hasta 5 min. Con 10 intentos tolera
+      # ~20 min de broker caido antes de marcar el evento FALLIDO.
+      max-intentos: ${OUTBOX_MAX_INTENTOS:10}
+      backoff-inicial-ms: 5000
+      backoff-max-ms: 300000
     # Solo se usa si arrancas con --spring.profiles.active=demo (DemoDataSeeder).
-    # Cambia estos correos aqui cuando quieras probar con otros destinatarios.
+    # Los destinatarios reales se pasan SOLO por variables de entorno
+    # (DEMO_CLIENTE_EMAIL / DEMO_MECANICO_EMAIL); nunca escribir correos personales aqui.
     demo:
-      cliente-email: ${DEMO_CLIENTE_EMAIL:maxibrocklestt7@gmail.com}
-      mecanico-email: ${DEMO_MECANICO_EMAIL:benjaben100@gmail.com}
+      cliente-email: ${DEMO_CLIENTE_EMAIL:cliente-demo@example.com}
+      mecanico-email: ${DEMO_MECANICO_EMAIL:mecanico-demo@example.com}
 
 springdoc:
   api-docs:

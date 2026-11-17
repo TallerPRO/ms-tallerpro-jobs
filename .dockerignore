@@ -1,4 +1,28 @@
-target
-.git
-.idea
+# Contexto de build minimo: solo pom.xml, mvnw, .mvn/ y src/ son necesarios.
+# Secretos: nunca deben llegar al contexto de build ni a la imagen.
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p12
+*.jks
+
+# Artefactos y metadatos locales
+target/
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
 *.iml
+*.log
+HELP.md
+README*
+
+# Archivos de despliegue (no forman parte de la imagen)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+compose-*.yml

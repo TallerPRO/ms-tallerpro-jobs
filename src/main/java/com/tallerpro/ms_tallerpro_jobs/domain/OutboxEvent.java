@@ -76,6 +76,9 @@ public class OutboxEvent {
 
     private Instant fechaEnvio;
 
+    /** null = publicable de inmediato; si no, el publicador no lo toma antes de este instante (backoff). */
+    private Instant proximoIntento;
+
     @Column(columnDefinition = "TEXT")
     private String ultimoError;
 

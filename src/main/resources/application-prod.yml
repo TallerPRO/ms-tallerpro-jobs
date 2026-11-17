@@ -1,0 +1,60 @@
+# Perfil de PRODUCCION de ms-tallerpro-jobs (SPRING_PROFILES_ACTIVE=prod).
+# Se superpone a application.yml. Reglas:
+#  - Los secretos NO tienen valor por defecto: si falta la variable, el arranque falla.
+#  - La validacion JWT queda fija en true (no depende de TALLERPRO_JWT_ENABLED).
+#  - Swagger/OpenAPI apagado y Actuator reducido a /actuator/health sin detalles.
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      # RIESGO CONOCIDO: jobs no tiene migraciones (Flyway/Liquibase), por lo que con una BD
+      # vacia "validate" no puede crear el esquema. Se deja "update" de forma EXPLICITA:
+      # Hibernate solo agrega tablas/columnas (nunca borra ni renombra), pero no versiona ni
+      # migra datos. Pendiente: introducir Flyway (V1 = esquema actual) y pasar a "validate".
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
+  kafka:
+    # Lista de los 3 brokers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+  rabbitmq:
+    # Ambos nodos del cluster (rabbitmq-1:5672,rabbitmq-2:5672). Si se define, Spring ignora
+    # host/port y reconecta al otro nodo si uno cae.
+    addresses: ${RABBITMQ_ADDRESSES}
+    username: ${RABBITMQ_USER}
+    password: ${RABBITMQ_PASSWORD}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0
+          audiences: ${AZURE_API_CLIENT_ID},api://${AZURE_API_CLIENT_ID}  # token v2: aud = client id pelado
+
+tallerpro:
+  security:
+    # Fijo: en produccion siempre se valida el JWT de Azure AD.
+    jwt-enabled: true
+    # Sin roles ficticios: el usuario de desarrollo nunca debe existir en produccion.
+    dev-roles: ""
+  jobs:
+    catalog:
+      base-url: ${CATALOG_SERVICE_URL}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
