@@ -394,18 +394,24 @@ public class OrdenServicioServiceImpl implements OrdenServicioService {
                 orden.getId(), orden.getId().toString(), orden.getTallerId().toString(), orden.getEstado(),
                 actor.id(), actor.nombre(), actor.rol(),
                 serializar(OrdenServicioResponse.from(orden)));
-        OutboxEvent evento = OutboxEvent.builder()
-                .aggregateType("OrdenServicio")
-                .aggregateId(orden.getId())
-                .eventType(tipoEvento)
-                .canal(CanalEvento.KAFKA)
-                .destino(properties.kafka().topicJobsEvents())
-                .payload(serializar(envelope))
-                .eventId(eventId)
-                .correlationId(envelope.correlationId())
-                .traceId(envelope.traceId())
-                .build();
-        outboxRepository.save(evento);
+        String payload = serializar(envelope);
+        // Mismo evento hacia los dos topicos Kafka, ambos con clave = id de la orden:
+        //  - jobs.events     : fuente de verdad (report y audit, retencion 7 dias).
+        //  - audit.timeline  : espejo compactado; conserva el ultimo estado por orden.
+        // Se reutiliza el eventId: audit es idempotente por eventId y no duplica el registro.
+        for (String topico : List.of(properties.kafka().topicJobsEvents(), properties.kafka().topicAuditTimeline())) {
+            outboxRepository.save(OutboxEvent.builder()
+                    .aggregateType("OrdenServicio")
+                    .aggregateId(orden.getId())
+                    .eventType(tipoEvento)
+                    .canal(CanalEvento.KAFKA)
+                    .destino(topico)
+                    .payload(payload)
+                    .eventId(eventId)
+                    .correlationId(envelope.correlationId())
+                    .traceId(envelope.traceId())
+                    .build());
+        }
     }
 
     /** Los comandos de email llevan el contacto del cliente (si existe) para que notify sepa a quien escribir. */

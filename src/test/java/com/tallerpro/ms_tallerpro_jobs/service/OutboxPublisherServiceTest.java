@@ -42,7 +42,7 @@ class OutboxPublisherServiceTest {
         repository = mock(OutboxEventRepository.class);
         kafkaTemplate = mock(KafkaTemplate.class);
         JobsProperties properties = new JobsProperties(
-                new JobsProperties.Kafka("jobs.events", 3, 1, 604_800_000L),
+                new JobsProperties.Kafka("jobs.events", 3, 1, 604_800_000L, "audit.timeline"),
                 new JobsProperties.Rabbitmq("cmd.direct", "cmd.dead.dlx", "q.email", "q.bay", "q.quote"),
                 null,
                 new JobsProperties.Outbox(true, 2000, 50, 3, 5000, 12000),

@@ -54,6 +54,9 @@ tallerpro:
       replicas: ${KAFKA_REPLICAS:1}
       # 7 dias: ventana para reprocesar el historial (reset de offsets a EARLIEST).
       retention-ms: 604800000
+      # Espejo compactado (clave = orderId) que consume audit; debe coincidir con
+      # app.kafka.topics.audit-timeline de ms-tallerpro-audit.
+      topic-audit-timeline: audit.timeline
     rabbitmq:
       exchange-cmd: cmd.direct
       exchange-dlx: cmd.dead.dlx

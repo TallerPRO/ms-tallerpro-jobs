@@ -11,9 +11,14 @@ public record JobsProperties(
         Outbox outbox,
         Demo demo
 ) {
-    /** retentionMs: retencion de jobs.events (7 dias por defecto). */
+    /**
+     * retentionMs: retencion de jobs.events (7 dias por defecto).
+     * topicAuditTimeline: espejo compactado por orderId que consume audit; lo declara audit
+     * (cleanup.policy=compact), jobs solo publica en el.
+     */
     public record Kafka(String topicJobsEvents, int partitions, int replicas,
-                        @DefaultValue("604800000") long retentionMs) {}
+                        @DefaultValue("604800000") long retentionMs,
+                        @DefaultValue("audit.timeline") String topicAuditTimeline) {}
 
     public record Rabbitmq(String exchangeCmd, String exchangeDlx, String queueEmail, String queueBay, String queueQuote) {}
 
