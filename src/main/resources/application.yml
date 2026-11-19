@@ -16,9 +16,25 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
+      client-id: ms-tallerpro-jobs
+      # Clave = id de la orden (orden por particion y requisito del topico compactado
+      # audit.timeline). Valor = JobsEventEnvelope ya serializado a JSON por el outbox.
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Durabilidad: el broker confirma cuando las replicas en ISR (min.insync.replicas=2) lo tienen.
       acks: all
+      batch-size: 32768
+      compression-type: lz4
+      properties:
+        # Idempotencia: los reintentos internos del productor no duplican ni desordenan mensajes.
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        # Agrupa hasta 5 ms de eventos por envio (menos requests al broker con carga alta).
+        linger.ms: 5
+        # El outbox ya reintenta con backoff exponencial: el productor falla pronto (30 s) en vez
+        # de bloquear el publicador los 2 min por defecto, y el evento queda para el siguiente ciclo.
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 30000
     admin:
       # Aplica las configs de NewTopic (retention.ms) tambien a topicos que ya existian.
       modify-topic-configs: true

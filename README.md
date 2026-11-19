@@ -31,6 +31,29 @@ docker compose up --build
 
 Swagger UI: `http://localhost:8081/swagger-ui.html`
 
+## Kafka con ZooKeeper (`docker-compose.kafka.yml`)
+
+Clúster Kafka para desarrollo: **3 ZooKeeper + 3 brokers + Kafka UI**.
+
+```bash
+docker compose -f docker-compose.kafka.yml up -d --wait
+# Kafka UI: http://localhost:8090
+```
+
+| Pieza | Detalle |
+|---|---|
+| `zookeeper-1..3` | Ensamble de metadatos (1 líder + 2 seguidores); tolera la caída de 1 nodo |
+| `kafka-1..3` | Brokers; `localhost:9092/9093/9094` desde el host, `kafka-N:9092` en la red `tallerpro-kafka` |
+| Alta disponibilidad | RF 3, `min.insync.replicas=2`; con `acks=all` no se pierden mensajes si cae 1 broker |
+| `kafka-init` | Crea `jobs.events`, `audit.timeline` y los 3 DLT con 3 particiones, RF 3, retención y `cleanup.policy` |
+| `kafka-ui` | Administración de brokers, tópicos y consumer groups |
+
+Para conectar los microservicios desde el host:
+`KAFKA_BOOTSTRAP_SERVERS=localhost:9092,localhost:9093,localhost:9094` y `KAFKA_REPLICAS=3`.
+
+Usa Confluent Platform 7.7 (Kafka 3.7), porque Kafka 4.0 eliminó ZooKeeper. El despliegue en
+EC2 (`docker-compose.prod.yml`) usa KRaft, su reemplazo oficial, con la misma tolerancia a fallos.
+
 ## Configuración
 
 Variables de entorno (ver `application.yml`): `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`,
